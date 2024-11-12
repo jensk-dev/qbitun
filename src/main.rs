@@ -81,6 +81,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Synchronizes the port configuration between qBittorrent and Gluetun.
+///
+/// This function retrieves the forwarded port from Gluetun, logs in to qBittorrent,
+/// and updates the qBittorrent listening port if necessary.
+///
+/// # Parameters
+///
+/// * `client` - The HTTP client to use for making requests.
+/// * `qbittorrent_url` - The URL of the qBittorrent Web API.
+/// * `qbittorrent_username` - The username for qBittorrent authentication.
+/// * `qbittorrent_password` - The password for qBittorrent authentication.
+/// * `gluetun_url` - The URL to retrieve the forwarded port from Gluetun.
 #[instrument(skip(client, qbittorrent_password))]
 async fn sync_once(
     client: &Client,
@@ -137,7 +149,15 @@ async fn sync_once(
     }
 }
 
-// Function to get the forwarded port from Gluetun
+/// Retrieves the forwarded port from Gluetun.
+///
+/// # Parameters
+///
+/// * `gluetun_url` - The URL to retrieve the forwarded port from.
+///
+/// # Returns
+///
+/// Returns the forwarded port as a `u16` on success, or an error on failure.
 #[instrument]
 async fn get_gluetun_port(gluetun_url: &str) -> Result<u16, Box<dyn std::error::Error>> {
     debug!(gluetun_url, "Sending request to Gluetun");
@@ -147,7 +167,18 @@ async fn get_gluetun_port(gluetun_url: &str) -> Result<u16, Box<dyn std::error::
     Ok(port)
 }
 
-// Function to login to qBittorrent's Web API
+/// Logs in to qBittorrent's Web API.
+///
+/// # Parameters
+///
+/// * `client` - The HTTP client to use for making requests.
+/// * `qbittorrent_url` - The URL of the qBittorrent Web API.
+/// * `username` - The username for qBittorrent authentication.
+/// * `password` - The password for qBittorrent authentication.
+///
+/// # Returns
+///
+/// Returns `Ok(())` on success, or an error on failure.
 #[instrument(skip(client, password))]
 async fn login_qbittorrent(
     client: &Client,
@@ -173,6 +204,16 @@ async fn login_qbittorrent(
     Ok(())
 }
  
+/// Retrieves the current listening port from qBittorrent.
+///
+/// # Parameters
+///
+/// * `client` - The HTTP client to use for making requests.
+/// * `qbittorrent_url` - The URL of the qBittorrent Web API.
+///
+/// # Returns
+///
+/// Returns the current listening port as a `u16` on success, or an error on failure.
 #[instrument(skip(client))]
 async fn get_qbittorrent_port(
     client: &Client,
@@ -195,6 +236,17 @@ async fn get_qbittorrent_port(
     }
 }
 
+/// Sets the listening port for qBittorrent.
+///
+/// # Parameters
+///
+/// * `client` - The HTTP client to use for making requests.
+/// * `qbittorrent_url` - The URL of the qBittorrent Web API.
+/// * `port` - The port to set as the listening port.
+///
+/// # Returns
+///
+/// Returns `Ok(())` on success, or an error on failure.
 #[instrument(skip(client))]
 async fn set_qbittorrent_port(
     client: &Client,
