@@ -25,35 +25,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let qbittorrent_username = env::var("QBITTORRENT_USERNAME").unwrap_or_else(|_| "admin".to_string());
 
     // Read the password once and securely store it
-    let qbittorrent_password = match env::var("QBITTORRENT_PASSWORD") {
-        Ok(pw) => {
-            // Remove the password from the environment
-            env::remove_var("QBITTORRENT_PASSWORD");
-            // Securely store the password
-            SecretString::from(pw)
-        }
-        Err(_) => {
-            // Use default password (not recommended)
-            SecretString::from("adminadmin")
-        }
-    };
+    let qbittorrent_password = get_secret_from_env("QBITTORRENT_PASSWORD")?;
+    let gluetun_api_key = get_secret_from_env("GLUETUN_API_KEY")?;
 
     let gluetun_url =
         env::var("GLUETUN_URL").unwrap_or_else(|_| "http://localhost:8000/forwarded_port".to_string());
-
-    // Read the API key once and securely store it
-    let gluetun_api_key = match env::var("GLUETUN_API_KEY") {
-        Ok(key) => {
-            // Remove the API key from the environment
-            env::remove_var("GLUETUN_API_KEY");
-            // Securely store the API key
-            SecretString::from(key)
-        }
-        Err(_) => {
-            error!("GLUETUN_API_KEY environment variable is not set");
-            return Err("GLUETUN_API_KEY environment variable is not set".into());
-        }
-    };
 
     // Synchronization interval in seconds
     let sync_interval_seconds: u64 = env::var("SYNC_INTERVAL_SECONDS")
@@ -91,8 +67,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     drop(qbittorrent_password);
+    drop(gluetun_api_key);
 
     Ok(())
+}
+
+fn get_secret_from_env(var_name: &str) -> Result<SecretString, Box<dyn std::error::Error>> {
+    match env::var(var_name) {
+        Ok(secret) => {
+            env::remove_var(var_name);
+            Ok(SecretString::from(secret))
+        }
+        Err(_) => {
+            let error_message = format!("{} environment variable is not set", var_name);
+            error!("{}", error_message);
+            Err(error_message.into())
+        }
+    }
 }
 
 /// Synchronizes the port configuration between qBittorrent and Gluetun.
