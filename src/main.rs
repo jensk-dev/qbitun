@@ -72,6 +72,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Retrieves a secret environment variable and removes it from the environment.
+///
+/// # Parameters
+///
+/// * `var_name` - The name of the environment variable to retrieve.
+///
+/// # Returns
+///
+/// Returns the secret as a `SecretString` on success, or an error on failure.
 fn get_secret_from_env(var_name: &str) -> Result<SecretString, Box<dyn std::error::Error>> {
     match env::var(var_name) {
         Ok(secret) => {
