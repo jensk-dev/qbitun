@@ -32,7 +32,7 @@ jobs:
         run: |
           wget https://github.com/slimtoolkit/slim/releases/download/1.40.11/dist_linux.tar.gz
           tar -xzf dist_linux.tar.gz
-          sudo cp dist_linux/docker-slim /usr/local/bin/
+          sudo cp dist_linux/* /usr/local/bin/
 
       - name: Slim Docker image
         run: |
