@@ -12,7 +12,8 @@
                 "todo-tree.filtering.excludeGlobs": [
                     "**/.git/**",
                     "**/.devcontainer/**" 
-                ]
+                ],
+                "rust-analyzer.check.command": "clippy"
             },
             "extensions": [
                 "rust-lang.rust-analyzer",
