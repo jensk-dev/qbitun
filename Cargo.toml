@@ -11,6 +11,7 @@ tokio = { version = "1", features = ["full"] }
 dotenv = "0.15"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"] }
+secrecy = "0.10.3"
 
 [profile.release]
 lto = false

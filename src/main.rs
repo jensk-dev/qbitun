@@ -1,10 +1,11 @@
 use reqwest::Client;
+use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
 use std::env;
 use std::time::Duration;
 use tokio::signal;
 use tokio::time::sleep;
-use tracing::{debug, error, info, instrument, span, warn, Level};
+use tracing::{debug, error, info, instrument, span, Level};
 use tracing_subscriber::{fmt, EnvFilter};
 
 #[tokio::main]
@@ -19,11 +20,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
 
     // Read configuration from environment variables or use default values
-    let qbittorrent_url = env::var("QBITTORRENT_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let qbittorrent_url =
+        env::var("QBITTORRENT_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
     let qbittorrent_username = env::var("QBITTORRENT_USERNAME").unwrap_or_else(|_| "admin".to_string());
-    let qbittorrent_password = env::var("QBITTORRENT_PASSWORD").unwrap_or_else(|_| "adminadmin".to_string());
 
-    let gluetun_url = env::var("GLUETUN_URL").unwrap_or_else(|_| "http://localhost:8000/forwarded_port".to_string());
+    // Read the password once and securely store it
+    let qbittorrent_password = match env::var("QBITTORRENT_PASSWORD") {
+        Ok(pw) => {
+            // Remove the password from the environment
+            env::remove_var("QBITTORRENT_PASSWORD");
+            // Securely store the password
+            SecretString::from(pw)
+        }
+        Err(_) => {
+            // Use default password (not recommended)
+            SecretString::from("adminadmin")
+        }
+    };
+
+    let gluetun_url =
+        env::var("GLUETUN_URL").unwrap_or_else(|_| "http://localhost:8000/forwarded_port".to_string());
 
     // Synchronization interval in seconds
     let sync_interval_seconds: u64 = env::var("SYNC_INTERVAL_SECONDS")
@@ -38,13 +54,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting qBittorrent and Gluetun port synchronization");
 
     // Create a client outside the loop to reuse connections and cookies
-    let client = reqwest::Client::builder()
-        .cookie_store(true)
-        .build()?;
+    let client = reqwest::Client::builder().cookie_store(true).build()?;
 
     loop {
         let shutdown_signal = async {
-            signal::ctrl_c().await.expect("Failed to install CTRL+C handler");
+            signal::ctrl_c()
+                .await
+                .expect("Failed to install CTRL+C handler");
         };
 
         tokio::select! {
@@ -60,6 +76,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    drop(qbittorrent_password);
+
     Ok(())
 }
 
@@ -68,7 +86,7 @@ async fn sync_once(
     client: &Client,
     qbittorrent_url: &str,
     qbittorrent_username: &str,
-    qbittorrent_password: &str,
+    qbittorrent_password: &SecretString,
     gluetun_url: &str,
 ) {
     // Get the port from Gluetun
@@ -84,7 +102,14 @@ async fn sync_once(
     };
 
     // Login to qBittorrent
-    if let Err(e) = login_qbittorrent(client, qbittorrent_url, qbittorrent_username, qbittorrent_password).await {
+    if let Err(e) = login_qbittorrent(
+        client,
+        qbittorrent_url,
+        qbittorrent_username,
+        qbittorrent_password,
+    )
+    .await
+    {
         error!(error = %e, "Failed to authenticate with qBittorrent");
         return;
     } else {
@@ -128,10 +153,10 @@ async fn login_qbittorrent(
     client: &Client,
     qbittorrent_url: &str,
     username: &str,
-    password: &str,
+    password: &SecretString,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let login_url = format!("{}/api/v2/auth/login", qbittorrent_url);
-    let params = [("username", username), ("password", password)];
+    let params = [("username", username), ("password", password.expose_secret())];
 
     debug!("Attempting to authenticate with qBittorrent");
     let response = client.post(&login_url).form(&params).send().await?;
@@ -140,13 +165,14 @@ async fn login_qbittorrent(
 
     if text != "Ok." {
         error!("Authentication failed with qBittorrent");
-        return Err("Failed to authenticate to qBittorrent. Please check your credentials and URL.".into());
+        return Err(
+            "Failed to authenticate to qBittorrent. Please check your credentials and URL.".into(),
+        );
     }
 
     Ok(())
 }
-
-// Function to get the current listening port from qBittorrent
+ 
 #[instrument(skip(client))]
 async fn get_qbittorrent_port(
     client: &Client,
@@ -169,7 +195,6 @@ async fn get_qbittorrent_port(
     }
 }
 
-// Function to set the listening port in qBittorrent's preferences
 #[instrument(skip(client))]
 async fn set_qbittorrent_port(
     client: &Client,
