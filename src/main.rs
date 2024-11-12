@@ -41,6 +41,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gluetun_url =
         env::var("GLUETUN_URL").unwrap_or_else(|_| "http://localhost:8000/forwarded_port".to_string());
 
+    // Read the API key once and securely store it
+    let gluetun_api_key = match env::var("GLUETUN_API_KEY") {
+        Ok(key) => {
+            // Remove the API key from the environment
+            env::remove_var("GLUETUN_API_KEY");
+            // Securely store the API key
+            SecretString::from(key)
+        }
+        Err(_) => {
+            error!("GLUETUN_API_KEY environment variable is not set");
+            return Err("GLUETUN_API_KEY environment variable is not set".into());
+        }
+    };
+
     // Synchronization interval in seconds
     let sync_interval_seconds: u64 = env::var("SYNC_INTERVAL_SECONDS")
         .unwrap_or_else(|_| "300".to_string()) // Default to 300 seconds (5 minutes)
@@ -68,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Shutdown signal received. Exiting...");
                 break;
             }
-            _ = sync_once(&client, &qbittorrent_url, &qbittorrent_username, &qbittorrent_password, &gluetun_url) => {
+            _ = sync_once(&client, &qbittorrent_url, &qbittorrent_username, &qbittorrent_password, &gluetun_url, &gluetun_api_key) => {
                 // Wait for the specified interval before the next synchronization
                 info!("Waiting for {} seconds before the next synchronization", sync_interval_seconds);
                 sleep(Duration::from_secs(sync_interval_seconds)).await;
@@ -93,16 +107,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// * `qbittorrent_username` - The username for qBittorrent authentication.
 /// * `qbittorrent_password` - The password for qBittorrent authentication.
 /// * `gluetun_url` - The URL to retrieve the forwarded port from Gluetun.
-#[instrument(skip(client, qbittorrent_password))]
+/// * `gluetun_api_key` - The API key for Gluetun authentication.
+#[instrument(skip(client, qbittorrent_password, gluetun_api_key))]
 async fn sync_once(
     client: &Client,
     qbittorrent_url: &str,
     qbittorrent_username: &str,
     qbittorrent_password: &SecretString,
     gluetun_url: &str,
+    gluetun_api_key: &SecretString,
 ) {
     // Get the port from Gluetun
-    let port = match get_gluetun_port(gluetun_url).await {
+    let port = match get_gluetun_port(gluetun_url, gluetun_api_key).await {
         Ok(port) => {
             info!(port, "Retrieved forwarded port from Gluetun");
             port
@@ -154,14 +170,19 @@ async fn sync_once(
 /// # Parameters
 ///
 /// * `gluetun_url` - The URL to retrieve the forwarded port from.
+/// * `gluetun_api_key` - The API key for Gluetun authentication.
 ///
 /// # Returns
 ///
 /// Returns the forwarded port as a `u16` on success, or an error on failure.
-#[instrument]
-async fn get_gluetun_port(gluetun_url: &str) -> Result<u16, Box<dyn std::error::Error>> {
+#[instrument(skip(gluetun_api_key))]
+async fn get_gluetun_port(gluetun_url: &str, gluetun_api_key: &SecretString) -> Result<u16, Box<dyn std::error::Error>> {
     debug!(gluetun_url, "Sending request to Gluetun");
-    let response = reqwest::get(gluetun_url).await?;
+    let response = reqwest::Client::new()
+        .get(gluetun_url)
+        .header("X-API-Key", gluetun_api_key.expose_secret())
+        .send()
+        .await?;
     let text = response.text().await?;
     let port: u16 = text.trim().parse()?;
     Ok(port)
