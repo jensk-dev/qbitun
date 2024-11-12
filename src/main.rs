@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Shutdown signal received. Exiting...");
                 break;
             }
-            _ = sync_once(&client, &qbittorrent_url, &qbittorrent_username, &qbittorrent_password, &gluetun_url, &gluetun_api_key) => {
+            _ = sync_ports(&client, &qbittorrent_url, &qbittorrent_username, &qbittorrent_password, &gluetun_url, &gluetun_api_key) => {
                 // Wait for the specified interval before the next synchronization
                 info!("Waiting for {} seconds before the next synchronization", interval_seconds);
                 sleep(Duration::from_secs(interval_seconds)).await;
@@ -124,7 +124,7 @@ fn get_env_var(var_name: &str) -> Result<String, Box<dyn std::error::Error>> {
 /// * `gluetun_url` - The URL to retrieve the forwarded port from Gluetun.
 /// * `gluetun_api_key` - The API key for Gluetun authentication.
 #[instrument(skip(client, qbittorrent_password, gluetun_api_key))]
-async fn sync_once(
+async fn sync_ports(
     client: &Client,
     qbittorrent_url: &str,
     qbittorrent_username: &str,
