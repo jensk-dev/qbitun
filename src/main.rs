@@ -178,6 +178,7 @@ async fn get_gluetun_port(
     gluetun_url: &str,
     gluetun_api_key: &SecretString,
 ) -> Result<u16, Box<dyn std::error::Error>> {
+    let gluetun_url = format!("{}/v1/openvpn/portforwarded", gluetun_url);
     debug!(gluetun_url, "Sending request to Gluetun");
     let response = reqwest::Client::new()
         .get(gluetun_url)
