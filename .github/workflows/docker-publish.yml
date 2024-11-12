@@ -36,7 +36,7 @@ jobs:
 
       - name: Slim Docker image
         run: |
-          docker-slim build --tag ghcr.io/${{ github.repository }}:slim ghcr.io/${{ github.repository }}:latest --http-probe=true --continue-after=30
+          docker-slim build --tag ghcr.io/${{ github.repository }}:slim ghcr.io/${{ github.repository }}:latest --http-probe=false --continue-after=30
 
       - name: Push Docker image to GHCR
         run: |
