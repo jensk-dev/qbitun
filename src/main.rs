@@ -1,6 +1,9 @@
 use reqwest::Client;
 use serde_json::json;
 use std::env;
+use std::time::Duration;
+use tokio::signal;
+use tokio::time::sleep;
 use tracing::{debug, error, info, instrument, span, warn, Level};
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -22,45 +25,91 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let gluetun_url = env::var("GLUETUN_URL").unwrap_or_else(|_| "http://localhost:8000/forwarded_port".to_string());
 
+    // Synchronization interval in seconds
+    let sync_interval_seconds: u64 = env::var("SYNC_INTERVAL_SECONDS")
+        .unwrap_or_else(|_| "300".to_string()) // Default to 300 seconds (5 minutes)
+        .parse()
+        .expect("SYNC_INTERVAL_SECONDS must be a valid integer");
+
     // Create a root span for the application
-    let app_span = span!(Level::INFO, "qbitun");
+    let app_span = span!(Level::INFO, "qbittorrent_gluetun_port_sync");
     let _enter = app_span.enter();
 
     info!("Starting qBittorrent and Gluetun port synchronization");
 
+    // Create a client outside the loop to reuse connections and cookies
+    let client = reqwest::Client::builder()
+        .cookie_store(true)
+        .build()?;
+
+    loop {
+        let shutdown_signal = async {
+            signal::ctrl_c().await.expect("Failed to install CTRL+C handler");
+        };
+
+        tokio::select! {
+            _ = shutdown_signal => {
+                info!("Shutdown signal received. Exiting...");
+                break;
+            }
+            _ = sync_once(&client, &qbittorrent_url, &qbittorrent_username, &qbittorrent_password, &gluetun_url) => {
+                // Wait for the specified interval before the next synchronization
+                info!("Waiting for {} seconds before the next synchronization", sync_interval_seconds);
+                sleep(Duration::from_secs(sync_interval_seconds)).await;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[instrument(skip(client, qbittorrent_password))]
+async fn sync_once(
+    client: &Client,
+    qbittorrent_url: &str,
+    qbittorrent_username: &str,
+    qbittorrent_password: &str,
+    gluetun_url: &str,
+) {
     // Get the port from Gluetun
-    let port = match get_gluetun_port(&gluetun_url).await {
+    let port = match get_gluetun_port(gluetun_url).await {
         Ok(port) => {
             info!(port, "Retrieved forwarded port from Gluetun");
             port
         }
         Err(e) => {
             error!(error = %e, "Failed to retrieve port from Gluetun");
-            return Err(e);
+            return;
         }
     };
 
     // Login to qBittorrent
-    let client = reqwest::Client::builder()
-        .cookie_store(true)
-        .build()?;
-
-    if let Err(e) = login_qbittorrent(&client, &qbittorrent_url, &qbittorrent_username, &qbittorrent_password).await {
+    if let Err(e) = login_qbittorrent(client, qbittorrent_url, qbittorrent_username, qbittorrent_password).await {
         error!(error = %e, "Failed to authenticate with qBittorrent");
-        return Err(e);
+        return;
     } else {
-        info!("Authenticated with qBittorrent");
+        debug!("Authenticated with qBittorrent");
     }
 
-    // Set the port in qBittorrent
-    if let Err(e) = set_qbittorrent_port(&client, &qbittorrent_url, port).await {
-        error!(error = %e, "Failed to set qBittorrent port");
-        return Err(e);
-    } else {
-        info!(port, "Configured qBittorrent listening port");
-    }
+    // Get the current port from qBittorrent
+    let current_port = match get_qbittorrent_port(client, qbittorrent_url).await {
+        Ok(port) => port,
+        Err(e) => {
+            error!(error = %e, "Failed to get current qBittorrent port");
+            return;
+        }
+    };
 
-    Ok(())
+    // Update the port if it's different
+    if current_port != port {
+        if let Err(e) = set_qbittorrent_port(client, qbittorrent_url, port).await {
+            error!(error = %e, "Failed to set qBittorrent port");
+        } else {
+            info!(port, "Configured qBittorrent listening port");
+        }
+    } else {
+        info!(port, "qBittorrent is already configured with the correct port");
+    }
 }
 
 // Function to get the forwarded port from Gluetun
@@ -97,6 +146,29 @@ async fn login_qbittorrent(
     Ok(())
 }
 
+// Function to get the current listening port from qBittorrent
+#[instrument(skip(client))]
+async fn get_qbittorrent_port(
+    client: &Client,
+    qbittorrent_url: &str,
+) -> Result<u16, Box<dyn std::error::Error>> {
+    let prefs_url = format!("{}/api/v2/app/preferences", qbittorrent_url);
+
+    debug!("Retrieving current qBittorrent preferences");
+    let response = client.get(&prefs_url).send().await?;
+
+    if response.status().is_success() {
+        let prefs: serde_json::Value = response.json().await?;
+        if let Some(port) = prefs.get("listen_port").and_then(|p| p.as_u64()) {
+            Ok(port as u16)
+        } else {
+            Err("listen_port not found in preferences".into())
+        }
+    } else {
+        Err("Failed to retrieve qBittorrent preferences".into())
+    }
+}
+
 // Function to set the listening port in qBittorrent's preferences
 #[instrument(skip(client))]
 async fn set_qbittorrent_port(
@@ -115,7 +187,6 @@ async fn set_qbittorrent_port(
     if response.status().is_success() {
         Ok(())
     } else {
-        error!("Failed to set qBittorrent listening port");
         Err("An error occurred while setting the port.".into())
     }
 }
