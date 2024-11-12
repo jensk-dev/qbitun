@@ -3,7 +3,6 @@ use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
 use std::env;
 use std::time::Duration;
-use tokio::signal;
 use tokio::time::sleep;
 use tracing::{debug, error, info, instrument, span, Level};
 use tracing_subscriber::EnvFilter;
@@ -40,29 +39,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder().cookie_store(true).build()?;
 
     loop {
-        let shutdown_signal = async {
-            signal::ctrl_c()
-                .await
-                .expect("Failed to install CTRL+C handler");
-        };
-
-        tokio::select! {
-            _ = shutdown_signal => {
-                info!("Shutdown signal received. Exiting...");
-                break;
-            }
-            _ = sync_ports(&client, &qbittorrent_url, &qbittorrent_username, &qbittorrent_password, &gluetun_url, &gluetun_api_key) => {
-                // Wait for the specified interval before the next synchronization
-                info!("Waiting for {} seconds before the next synchronization", interval_seconds);
-                sleep(Duration::from_secs(interval_seconds)).await;
-            }
-        }
+        sync_ports(&client, &qbittorrent_url, &qbittorrent_username, &qbittorrent_password, &gluetun_url, &gluetun_api_key).await;
+        info!("Waiting for {} seconds before the next synchronization", interval_seconds);
+        sleep(Duration::from_secs(interval_seconds)).await;
     }
-
-    drop(qbittorrent_password);
-    drop(gluetun_api_key);
-
-    Ok(())
 }
 
 /// Retrieves a secret environment variable and removes it from the environment.
