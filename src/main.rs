@@ -6,44 +6,37 @@ use std::time::Duration;
 use tokio::signal;
 use tokio::time::sleep;
 use tracing::{debug, error, info, instrument, span, Level};
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize tracing subscriber with environment filter and JSON formatter
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .json()
         .init();
 
-    // Load environment variables from a .env file if present
+    #[cfg(debug_assertions)]
     dotenv::dotenv().ok();
 
-    // Read configuration from environment variables or use default values
-    let qbittorrent_url =
-        env::var("QBITTORRENT_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
-    let qbittorrent_username = env::var("QBITTORRENT_USERNAME").unwrap_or_else(|_| "admin".to_string());
-
-    // Read the password once and securely store it
+    let qbittorrent_url = get_env_var("QBITTORRENT_URL")?;
+    let qbittorrent_username = get_env_var("QBITTORRENT_USERNAME")?;
     let qbittorrent_password = get_secret_from_env("QBITTORRENT_PASSWORD")?;
+    let gluetun_url = get_env_var("GLUETUN_URL")?;
     let gluetun_api_key = get_secret_from_env("GLUETUN_API_KEY")?;
+    let interval_seconds: u64 = match get_env_var("INTERVAL_SECONDS")?.parse() {
+        Ok(seconds) => seconds,
+        Err(e) => {
+            let error_message = format!("Failed to parse INTERVAL_SECONDS: {}", e);
+            error!("{}", error_message);
+            return Err(error_message.into());
+        }
+    };
 
-    let gluetun_url =
-        env::var("GLUETUN_URL").unwrap_or_else(|_| "http://localhost:8000/forwarded_port".to_string());
-
-    // Synchronization interval in seconds
-    let sync_interval_seconds: u64 = env::var("SYNC_INTERVAL_SECONDS")
-        .unwrap_or_else(|_| "300".to_string()) // Default to 300 seconds (5 minutes)
-        .parse()
-        .expect("SYNC_INTERVAL_SECONDS must be a valid integer");
-
-    // Create a root span for the application
-    let app_span = span!(Level::INFO, "qbittorrent_gluetun_port_sync");
+    let app_span = span!(Level::INFO, "qbitun");
     let _enter = app_span.enter();
 
     info!("Starting qBittorrent and Gluetun port synchronization");
 
-    // Create a client outside the loop to reuse connections and cookies
     let client = reqwest::Client::builder().cookie_store(true).build()?;
 
     loop {
@@ -60,8 +53,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             _ = sync_once(&client, &qbittorrent_url, &qbittorrent_username, &qbittorrent_password, &gluetun_url, &gluetun_api_key) => {
                 // Wait for the specified interval before the next synchronization
-                info!("Waiting for {} seconds before the next synchronization", sync_interval_seconds);
-                sleep(Duration::from_secs(sync_interval_seconds)).await;
+                info!("Waiting for {} seconds before the next synchronization", interval_seconds);
+                sleep(Duration::from_secs(interval_seconds)).await;
             }
         }
     }
@@ -81,12 +74,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # Returns
 ///
 /// Returns the secret as a `SecretString` on success, or an error on failure.
+#[instrument]
 fn get_secret_from_env(var_name: &str) -> Result<SecretString, Box<dyn std::error::Error>> {
     match env::var(var_name) {
         Ok(secret) => {
             env::remove_var(var_name);
             Ok(SecretString::from(secret))
         }
+        Err(_) => {
+            let error_message = format!("{} environment variable is not set", var_name);
+            error!("{}", error_message);
+            Err(error_message.into())
+        }
+    }
+}
+
+/// Retrieves an environment variable.
+///
+/// # Parameters
+///
+/// * `var_name` - The name of the environment variable to retrieve.
+///
+/// # Returns
+///
+/// Returns the value of the environment variable as a `String` on success, or an error on failure.
+#[instrument]
+fn get_env_var(var_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    match env::var(var_name) {
+        Ok(value) => Ok(value),
         Err(_) => {
             let error_message = format!("{} environment variable is not set", var_name);
             error!("{}", error_message);
@@ -161,7 +176,10 @@ async fn sync_once(
             info!(port, "Configured qBittorrent listening port");
         }
     } else {
-        info!(port, "qBittorrent is already configured with the correct port");
+        info!(
+            port,
+            "qBittorrent is already configured with the correct port"
+        );
     }
 }
 
@@ -176,7 +194,10 @@ async fn sync_once(
 ///
 /// Returns the forwarded port as a `u16` on success, or an error on failure.
 #[instrument(skip(gluetun_api_key))]
-async fn get_gluetun_port(gluetun_url: &str, gluetun_api_key: &SecretString) -> Result<u16, Box<dyn std::error::Error>> {
+async fn get_gluetun_port(
+    gluetun_url: &str,
+    gluetun_api_key: &SecretString,
+) -> Result<u16, Box<dyn std::error::Error>> {
     debug!(gluetun_url, "Sending request to Gluetun");
     let response = reqwest::Client::new()
         .get(gluetun_url)
@@ -208,7 +229,10 @@ async fn login_qbittorrent(
     password: &SecretString,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let login_url = format!("{}/api/v2/auth/login", qbittorrent_url);
-    let params = [("username", username), ("password", password.expose_secret())];
+    let params = [
+        ("username", username),
+        ("password", password.expose_secret()),
+    ];
 
     debug!("Attempting to authenticate with qBittorrent");
     let response = client.post(&login_url).form(&params).send().await?;
@@ -224,7 +248,7 @@ async fn login_qbittorrent(
 
     Ok(())
 }
- 
+
 /// Retrieves the current listening port from qBittorrent.
 ///
 /// # Parameters
