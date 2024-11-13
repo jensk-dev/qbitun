@@ -26,7 +26,7 @@ jobs:
 
       - name: Build and tag Docker image
         run: |
-          docker build -t ghcr.io/${{ github.repository }}:latest .
+          docker build -t intermediate:latest .
 
       - name: Install Slim Toolkit
         run: |
@@ -36,9 +36,8 @@ jobs:
 
       - name: Slim Docker image
         run: |
-          docker-slim build --http-probe=false --continue-after=30 --tag "ghcr.io/${{ github.repository }}:slim" --target "ghcr.io/${{ github.repository }}:latest"
+          docker-slim build --http-probe=false --continue-after=30 --tag "ghcr.io/${{ github.repository }}:latest" --target "intermediate:latest"
 
       - name: Push Docker image to GHCR
         run: |
           docker push ghcr.io/${{ github.repository }}:latest
-          docker push ghcr.io/${{ github.repository }}:slim
