@@ -233,13 +233,17 @@ async fn login_qbittorrent(
         return Err(error_message.into());
     }
 
-    let cookies = response.cookies().collect::<Vec<_>>();
-    if response.status().is_success() && cookies.iter().any(|cookie| cookie.name() == "SID") {
+    let response_text = response.text().await?;
+    if response_text == "Ok." {
         debug!("Authentication successful with qBittorrent");
-        return Ok(())
+        return Ok(());
+    } else if response_text == "Fails." {
+        let error_message = "Authentication failed with qBittorrent: Invalid username or password.";
+        error!(error_message);
+        return Err(error_message.into());
     }
 
-    let error_message = "Authentication failed with qBittorrent: Please check your credentials and URL.";
+    let error_message = "Authentication failed with qBittorrent: An unknown error occurred.";
     error!(error_message);
     Err(error_message.into())    
 }
