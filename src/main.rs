@@ -220,18 +220,23 @@ async fn login_qbittorrent(
     ];
 
     debug!("Attempting to authenticate with qBittorrent");
-    let response = client.post(&login_url).form(&params).send().await?;
+    let response = client
+        .post(&login_url)
+        .header("Referer", qbittorrent_url)
+        .form(&params)
+        .send()
+        .await?;
 
-    let text = response.text().await?;
-
-    if text != "Ok." {
+    if response.status().is_success() {
+        debug!("Authentication successful with qBittorrent");
+        Ok(())
+    } else if response.status().as_u16() == 403 {
+        error!("Authentication failed with qBittorrent: User's IP is banned for too many failed login attempts");
+        Err("Authentication failed with qBittorrent: User's IP is banned for too many failed login attempts".into())
+    } else {
         error!("Authentication failed with qBittorrent");
-        return Err(
-            "Failed to authenticate to qBittorrent. Please check your credentials and URL.".into(),
-        );
+        Err("Failed to authenticate to qBittorrent. Please check your credentials and URL.".into())
     }
-
-    Ok(())
 }
 
 /// Retrieves the current listening port from qBittorrent.
