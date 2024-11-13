@@ -222,21 +222,26 @@ async fn login_qbittorrent(
     debug!("Attempting to authenticate with qBittorrent");
     let response = client
         .post(&login_url)
-        .header("Referer", qbittorrent_url)
+        .header("Origin", qbittorrent_url)
         .form(&params)
         .send()
         .await?;
 
-    if response.status().is_success() {
-        debug!("Authentication successful with qBittorrent");
-        Ok(())
-    } else if response.status().as_u16() == 403 {
-        error!("Authentication failed with qBittorrent: User's IP is banned for too many failed login attempts");
-        Err("Authentication failed with qBittorrent: User's IP is banned for too many failed login attempts".into())
-    } else {
-        error!("Authentication failed with qBittorrent");
-        Err("Failed to authenticate to qBittorrent. Please check your credentials and URL.".into())
+    let error_message = "Authentication failed with qBittorrent: User's IP is banned for too many failed login attempts";
+    if response.status().as_u16() == 403 {
+        error!(error_message);
+        return Err(error_message.into());
     }
+
+    let cookies = response.cookies().collect::<Vec<_>>();
+    if response.status().is_success() && cookies.iter().any(|cookie| cookie.name() == "SID") {
+        debug!("Authentication successful with qBittorrent");
+        return Ok(())
+    }
+
+    let error_message = "Authentication failed with qBittorrent: Please check your credentials and URL.";
+    error!(error_message);
+    Err(error_message.into())    
 }
 
 /// Retrieves the current listening port from qBittorrent.
@@ -257,7 +262,10 @@ async fn get_qbittorrent_port(
     let prefs_url = format!("{}/api/v2/app/preferences", qbittorrent_url);
 
     debug!("Retrieving current qBittorrent preferences");
-    let response = client.get(&prefs_url).send().await?;
+    let response = client
+        .get(&prefs_url)
+        .send()
+        .await?;
 
     if response.status().is_success() {
         let prefs: serde_json::Value = response.json().await?;
@@ -294,7 +302,11 @@ async fn set_qbittorrent_port(
     let params = [("json", prefs.to_string())];
 
     debug!(port, "Setting qBittorrent listening port");
-    let response = client.post(&set_prefs_url).form(&params).send().await?;
+    let response = client
+        .post(&set_prefs_url)
+        .form(&params)
+        .send()
+        .await?;
 
     if response.status().is_success() {
         Ok(())
