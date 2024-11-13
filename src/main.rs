@@ -163,6 +163,11 @@ async fn sync_ports(
     }
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct GluetunPort {
+    port: u16,
+}
+
 /// Retrieves the forwarded port from Gluetun.
 ///
 /// # Parameters
@@ -185,9 +190,8 @@ async fn get_gluetun_port(
         .header("X-API-Key", gluetun_api_key.expose_secret())
         .send()
         .await?;
-    let text = response.text().await?;
-    let port: u16 = text.trim().parse()?;
-    Ok(port)
+    let gluetun_port: GluetunPort = response.json().await?;
+    Ok(gluetun_port.port)
 }
 
 /// Logs in to qBittorrent's Web API.
