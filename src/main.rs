@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         sync_ports(&client, &qbittorrent_url, &qbittorrent_username, &qbittorrent_password, &gluetun_url, &gluetun_api_key).await;
-        info!("Waiting for {} seconds before the next synchronization", interval_seconds);
+        debug!("Waiting for {} seconds before the next synchronization", interval_seconds);
         sleep(Duration::from_secs(interval_seconds)).await;
     }
 }
@@ -115,7 +115,7 @@ async fn sync_ports(
     // Get the port from Gluetun
     let port = match get_gluetun_port(gluetun_url, gluetun_api_key).await {
         Ok(port) => {
-            info!(port, "Retrieved forwarded port from Gluetun");
+            debug!(port, "Retrieved forwarded port from Gluetun");
             port
         }
         Err(e) => {
@@ -156,7 +156,7 @@ async fn sync_ports(
             info!(port, "Configured qBittorrent listening port");
         }
     } else {
-        info!(
+        debug!(
             port,
             "qBittorrent is already configured with the correct port"
         );
@@ -183,10 +183,10 @@ async fn get_gluetun_port(
     gluetun_url: &str,
     gluetun_api_key: &SecretString,
 ) -> Result<u16, Box<dyn std::error::Error>> {
-    let gluetun_url = format!("{}/v1/openvpn/portforwarded", gluetun_url);
+    let gluetun_url = format!("{}/v1/portforward", gluetun_url);
     debug!(gluetun_url, "Sending request to Gluetun");
     let response = reqwest::Client::new()
-        .get(gluetun_url)
+        .get(&gluetun_url)
         .header("X-API-Key", gluetun_api_key.expose_secret())
         .send()
         .await?;
