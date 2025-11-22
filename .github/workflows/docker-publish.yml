@@ -26,17 +26,7 @@ jobs:
 
       - name: Build and tag Docker image
         run: |
-          docker build -t intermediate:latest .
-
-      - name: Install Slim Toolkit
-        run: |
-          wget https://github.com/slimtoolkit/slim/releases/download/1.40.11/dist_linux.tar.gz
-          tar -xzf dist_linux.tar.gz
-          sudo cp dist_linux/* /usr/local/bin/
-
-      - name: Slim Docker image
-        run: |
-          docker-slim build --http-probe=false --continue-after=30 --tag "ghcr.io/${{ github.repository }}:latest" --target "intermediate:latest"
+          docker build -t ghcr.io/${{ github.repository }}:latest .
 
       - name: Push Docker image to GHCR
         run: |
